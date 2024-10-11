@@ -63,16 +63,29 @@ print(sa_v2(inputs))
 # Step 1: Compute attention scores
 queries = sa_v2.W_query(inputs)
 keys = sa_v2.W_key(inputs)
-attn_scores = queries @ keys.T
+attn_scores = queries @ keys.T # use transpose with keys is because compute similarity between queries and keys
 attn_weights = torch.softmax(attn_scores / keys.shape[-1]**0.5, dim=-1)
 print(attn_weights)
 # Step 2: Causal mask
-context_lenght = attn_weights.shape[-1]
-mask_simple = torch.tril(torch.ones(context_lenght, context_lenght))
+context_length = attn_weights.shape[-1]
+mask_simple = torch.tril(torch.ones(context_length, context_length))
 print(mask_simple)
 masked_simple = attn_weights*mask_simple
 print(masked_simple) 
-# renormalize the attention weights to sum up to 1 again by dividing each element in each row by the sum in each row
+# Step 3: renormalize the attention weights to sum up to 1 again by dividing each element in each row by the sum in each row
 row_sums = masked_simple.sum(dim=-1, keepdim=True)
+# print(row_sums)
 masked_simple_norm = masked_simple / row_sums
 print(masked_simple_norm)
+
+# Improve performance masked attention weights more efficiently use -∞ instead of 0 
+mask = torch.triu(torch.ones(context_length, context_length), diagonal=1)
+masked = attn_scores.masked_fill(mask.bool(), -torch.inf)
+print(masked)
+attn_weights = torch.softmax(masked / keys.shape[-1]**0.5, dim=-1)
+print(attn_weights)
+
+# Apply dropout
+dropout = nn.Dropout(0.5)
+torch.manual_seed(123)
+print(dropout(attn_weights))
