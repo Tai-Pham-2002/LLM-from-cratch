@@ -14,9 +14,8 @@ GPT_CONFIG_124M = {
 class DummyGPTModel(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"])
+        self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"]) # initializing the embedding layer (matrix)
         self.pos_emb = nn.Embedding(cfg["context_length"], cfg["emb_dim"])
-        self.drop_emb = nn.Dropout(cfg["drop_rate"])
         self.drop_emb = nn.Dropout(cfg["drop_rate"])
         self.trf_blocks = nn.Sequential(*[DummyTransformerBlock(cfg) for _ in range(cfg["n_layers"])])
         self.final_norm = DummyLayerNorm(cfg["emb_dim"])
@@ -24,14 +23,17 @@ class DummyGPTModel(nn.Module):
     def forward(self, in_idx):
         batch_size, seq_len = in_idx.shape
         tok_embeds = self.tok_emb(in_idx)
+        print(f"tok_shape: {tok_embeds.shape}")
+        print(f"in_idx.device: {in_idx.device}")
         pos_embeds = self.pos_emb(torch.arange(seq_len, device=in_idx.device))
+        print(f"pos_shape: {pos_embeds.shape}")
         x = tok_embeds + pos_embeds
         x = self.drop_emb(x)
         x = self.trf_blocks(x)
         x = self.final_norm(x)
         logits = self.out_head(x)
         return logits
-
+ 
 class DummyTransformerBlock(nn.Module):
     def __init__(self, cfg):
         super().__init__()

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import tiktoken
+from torch.utils.data import Dataset, DataLoader
 GPT_CONFIG_124M = {
     "vocab_size": 50257,
     "context_length": 1024,
@@ -17,7 +18,42 @@ txt2 = "Every day holds a"
 batch.append(torch.tensor(tokenizer.encode(txt1)))
 batch.append(torch.tensor(tokenizer.encode(txt2)))
 batch = torch.stack(batch, dim=0)
-print(batch)
+
+
+class GPTDatasetV1(Dataset):
+    def __init__(self, txt, tokenizer, max_length, stride):
+        self.input_ids = []
+        self.target_ids = []
+
+        # Tokenize the entire text
+        token_ids = tokenizer.encode(txt, allowed_special={"<|endoftext|>"})
+
+        # Use a sliding window to chunk the book into overlapping sequences of max_length
+        for i in range(0, len(token_ids) - max_length, stride):
+            input_chunk = token_ids[i:i + max_length]
+            target_chunk = token_ids[i + 1: i + max_length + 1]
+            self.input_ids.append(torch.tensor(input_chunk))
+            self.target_ids.append(torch.tensor(target_chunk))
+
+    def __len__(self):
+        return len(self.input_ids)
+
+    def __getitem__(self, idx):
+        return self.input_ids[idx], self.target_ids[idx]
+
+def create_dataloader_v1(txt, batch_size=4, max_length=256,
+                         stride=128, shuffle=True, drop_last=True, num_workers=0):
+    # Initialize the tokenizer
+    tokenizer = tiktoken.get_encoding("gpt2")
+
+    # Create dataset
+    dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
+    # Create dataloader
+    dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, num_workers=num_workers)
+
+    return dataloader
+
 class LayerNorm(nn.Module):
     def __init__(self, emb_dim):
             super().__init__()
@@ -120,12 +156,6 @@ class TransformerBlock(nn.Module):
         x = x + shortcut    # Add the original input back
         return x
 
-torch.manual_seed(123)
-x = torch.rand(2, 4, 768)
-block = TransformerBlock(GPT_CONFIG_124M)
-output = block(x)
-print("Input shape:", x.shape)
-print("Output shape:", output.shape)
 
 class GPTModel(nn.Module):
     def __init__(self, cfg):
@@ -148,26 +178,6 @@ class GPTModel(nn.Module):
         return logits
 
 
-torch.manual_seed(123)
-model = GPTModel(GPT_CONFIG_124M)
-out = model(batch)
-print("Input batch:\n", batch)
-print("\nOutput shape:", out.shape)
-print(out)
-total_params = sum(p.numel() for p in model.parameters())
-print(f"Total number of parameters: {total_params:,}")
-print("Token embedding layer shape:", model.tok_emb.weight.shape)
-print("Output layer shape:", model.out_head.weight.shape)
-total_params_gpt2 = (total_params - sum(p.numel() for p in model.out_head.parameters()))
-print(f"Number of trainable parameters "
-f"considering weight tying: {total_params_gpt2:,}"
-)
-# compute the memory requirements of the 163 million parameters in our GPTModel
-total_size_bytes = total_params * 4
-total_size_mb = total_size_bytes / (1024 * 1024)
-print(f"Total size of the model: {total_size_mb:.2f} MB")
-
-
 # Crops current context if it exceeds the supported context size, e.g., if LLM supports only 5 tokens, and the context size is 10, then only the last 5 tokens are used as context
 
 def generate_text_simple(model, idx, max_new_tokens, context_size):
@@ -182,16 +192,3 @@ def generate_text_simple(model, idx, max_new_tokens, context_size):
 
     return idx
 
-start_context = "Hello, I am"
-encoded = tokenizer.encode(start_context)
-print("encoded:", encoded)
-encoded_tensor = torch.tensor(encoded).unsqueeze(0)
-print("encoded_tensor.shape:", encoded_tensor.shape)
-
-# we put the model into .eval() mode. This disables random components like dropout
-model.eval()
-out = generate_text_simple(model=model, idx=encoded_tensor, max_new_tokens=6, context_size=GPT_CONFIG_124M["context_length"])
-print("Output:", out)
-print("Output length:", len(out[0]))
-decoded_text = tokenizer.decode(out.squeeze(0).tolist())
-print(decoded_text)
